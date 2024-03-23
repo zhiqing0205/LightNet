@@ -124,6 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('--meta_epochs', default=100, type=int,
                         help='meta_epochs')
     parser.add_argument('--gan_epochs', default=100, type=int, help='gan_epochs')
+    parser.add_argument('--gen_epochs', default=100, type=int, help='gen_epochs')
     parser.add_argument('--auto_noise', default=0, type=float, help='auto_noise')
     parser.add_argument('--dsc_lr', default=0.0002, type=float, help='dsc_lr')
     parser.add_argument('--mix_noise', default=1, type=int, help='mix_noise')

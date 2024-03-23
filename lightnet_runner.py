@@ -92,6 +92,7 @@ class LightNet:
         self.auto_noise = args.auto_noise
         self.dsc_lr = args.dsc_lr
         self.gan_epochs = args.gan_epochs
+        self.gen_epochs = args.gen_epochs
         self.mix_noise = args.mix_noise
         self.noise_std = args.noise_std
         self.meta_epochs = args.meta_epochs
@@ -414,58 +415,60 @@ class LightNet:
 
         i_iter = 0
         LOGGER.info(f"Training generator...")
-        all_loss = []
-        all_p_true = []
-        all_p_fake = []
-        all_contrastive_loss = []
-        for data_item in input_data:
-            # print(len(data_item))
-            # print(data_item)
-            self.gen_opt.zero_grad()
-            # self.gen_opt.zero_grad()
+        with tqdm(total=self.gen_epochs) as pbar:
+            for i_epoch in range(self.gen_epochs):
+              all_loss = []
+              all_p_true = []
+              all_p_fake = []
+              all_contrastive_loss = []
+              for data_item in input_data:
+                  # print(len(data_item))
+                  # print(data_item)
+                  self.gen_opt.zero_grad()
+                  # self.gen_opt.zero_grad()
 
-            i_iter += 1
-            # img = data_item["image"]
-            # img = img.to(torch.float).to(self.device)
-            true_feats, fake_feats, contrastive_loss = self._predict(data_item[0], is_test=False)
+                  i_iter += 1
+                  # img = data_item["image"]
+                  # img = img.to(torch.float).to(self.device)
+                  true_feats, fake_feats, contrastive_loss = self._predict(data_item[0], is_test=False)
 
-            # print(f'true_feats: {true_feats.shape}, fake_feats: {fake_feats.shape}')
-            scores = self.discriminator(torch.cat([true_feats, fake_feats]))
-            true_scores = scores[:len(true_feats)]
-            fake_scores = scores[len(fake_feats):]
+                  # print(f'true_feats: {true_feats.shape}, fake_feats: {fake_feats.shape}')
+                  scores = self.discriminator(torch.cat([true_feats, fake_feats]))
+                  true_scores = scores[:len(true_feats)]
+                  fake_scores = scores[len(fake_feats):]
 
-            th = self.dsc_margin
-            p_true = (true_scores.detach() >= th).sum() / len(true_scores)
-            p_fake = (fake_scores.detach() < -th).sum() / len(fake_scores)
-            true_loss = torch.clip(-true_scores + th, min=0)
-            fake_loss = torch.clip(fake_scores + th, min=0)
+                  th = self.dsc_margin
+                  p_true = (true_scores.detach() >= th).sum() / len(true_scores)
+                  p_fake = (fake_scores.detach() < -th).sum() / len(fake_scores)
+                  true_loss = torch.clip(-true_scores + th, min=0)
+                  fake_loss = torch.clip(fake_scores + th, min=0)
 
-            self.logger.logger.add_scalar(f"gen_p_true", p_true, self.logger.g_iter)
-            self.logger.logger.add_scalar(f"gen_p_fake", p_fake, self.logger.g_iter)
-            self.logger.logger.add_scalar(f"contrastive_loss", contrastive_loss, self.logger.g_iter)
+                  self.logger.logger.add_scalar(f"gen_p_true", p_true, self.logger.g_iter)
+                  self.logger.logger.add_scalar(f"gen_p_fake", p_fake, self.logger.g_iter)
+                  # self.logger.logger.add_scalar(f"contrastive_loss", contrastive_loss, self.logger.g_iter)
 
-            loss = contrastive_loss - true_loss.mean() - fake_loss.mean()
-            self.logger.logger.add_scalar("loss", loss, self.logger.g_iter)
-            self.logger.step()
+                  loss = contrastive_loss - true_loss.mean() - fake_loss.mean()
+                  self.logger.logger.add_scalar("loss", loss, self.logger.g_iter)
+                  self.logger.step()
 
-            loss.backward()
-            self.gen_opt.step()
+                  loss.backward()
+                  self.gen_opt.step()
 
-            loss = loss.detach().cpu()
-            all_loss.append(loss.item())
-            all_p_true.append(p_true.cpu().item())
-            all_p_fake.append(p_fake.cpu().item())
-            all_contrastive_loss.append(contrastive_loss.item())
+                  loss = loss.detach().cpu()
+                  all_loss.append(loss.item())
+                  all_p_true.append(p_true.cpu().item())
+                  all_p_fake.append(p_fake.cpu().item())
+                  all_contrastive_loss.append(contrastive_loss.item())
 
-        all_loss = sum(all_loss) / len(input_data)
-        all_p_true = sum(all_p_true) / len(input_data)
-        all_p_fake = sum(all_p_fake) / len(input_data)
-        all_contrastive_loss = sum(all_contrastive_loss) / len(input_data)
-        cur_lr = self.gen_opt.state_dict()['param_groups'][0]['lr']
-        pbar_str = f"loss:{round(all_loss, 5)} "
-        pbar_str += f"lr:{round(cur_lr, 6)}"
-        pbar_str += f" p_true:{round(all_p_true, 3)} p_fake:{round(all_p_fake, 3)}"
-        pbar_str += f"contrastive_loss:{round(all_contrastive_loss, 5)}"
+              all_loss = sum(all_loss) / len(input_data)
+              all_p_true = sum(all_p_true) / len(input_data)
+              all_p_fake = sum(all_p_fake) / len(input_data)
+              all_contrastive_loss = sum(all_contrastive_loss) / len(input_data)
+              cur_lr = self.gen_opt.state_dict()['param_groups'][0]['lr']
+              pbar_str = f"loss:{round(all_loss, 5)} "
+              pbar_str += f"lr:{round(cur_lr, 6)}"
+              pbar_str += f" p_true:{round(all_p_true, 3)} p_fake:{round(all_p_fake, 3)}"
+              # pbar_str += f"contrastive_loss:{round(all_contrastive_loss, 5)}"
 
     def _evaluate(self, test_data, scores, segmentations, features, labels_gt, masks_gt):
 
