@@ -116,14 +116,23 @@ class LightNet:
 
         # 特征融合
         self.feature_fusion = feature_fusion.FeatureFusionBlock(1152, 768, mlp_ratio=4.).to(self.device)
+
+        # 读取ckpt
+        self.feature_fusion.load_state_dict(torch.load('checkpoints/uff_pretrain.pth', map_location=self.device))
+
+        # 始终为eval模式
+        self.feature_fusion.eval()
+
         # 噪声生成器
         self.noise_generator = noise_generator.NoiseGenerator(1152 + 768, 2, hidden=2048,
                                                               mix_noise=self.mix_noise, noise_std=self.noise_std).to(
             self.device)
 
-        parameters = list(self.feature_extractor.parameters()) + \
-                     list(self.feature_fusion.parameters()) + \
-                     list(self.noise_generator.parameters())
+        # parameters = list(self.feature_extractor.parameters()) + \
+        #              list(self.feature_fusion.parameters()) + \
+        #              list(self.noise_generator.parameters())
+
+        parameters = self.noise_generator.parameters()
 
         # 定义优化器
         # self.gen_opt = optim.Adam(parameters, lr=0.001)
@@ -160,7 +169,7 @@ class LightNet:
 
         # print('fit..')
         # print(len(train_loader))
-        self.train(train_loader, test_loader)
+        self.train(train_loader, test_loader, class_name)
         # for sample, _ in tqdm(train_loader, desc=f'Extracting train features for class {class_name}'):
         #     # fusion_patch, fake_feats, contrastive_loss = self._predict(sample, class_name)
         #     # print('Fusion patch: ', fusion_patch)
@@ -183,13 +192,8 @@ class LightNet:
 
         unorganized_pc_no_zeros = torch.tensor(unorganized_pc[nonzero_indices, :]).unsqueeze(dim=0).permute(0, 2, 1)
 
-        if is_test:
-            # 特征提取
-            with torch.no_grad():
-                rgb_feature_maps, xyz_feature_maps, center, neighbor_idx, center_idx = self.feature_extractor(
-                    sample[0],
-                    unorganized_pc_no_zeros.contiguous())
-        else:
+        # 特征提取
+        with torch.no_grad():
             rgb_feature_maps, xyz_feature_maps, center, neighbor_idx, center_idx = self.feature_extractor(
                 sample[0],
                 unorganized_pc_no_zeros.contiguous())
@@ -227,23 +231,31 @@ class LightNet:
 
         # print('*' * 60)
         # 特征融合
-        if is_test:
+        # if is_test:
+        if True:
             with torch.no_grad():
                 fusion_patch = self.feature_fusion.feature_fusion(xyz_patch2.unsqueeze(0), rgb_patch2.unsqueeze(0))
-                contrastive_loss = self.feature_fusion(xyz_patch2.unsqueeze(0), rgb_patch2.unsqueeze(0))
+                # contrastive_loss = self.feature_fusion(xyz_patch2.unsqueeze(0), rgb_patch2.unsqueeze(0))
         else:
             fusion_patch = self.feature_fusion.feature_fusion(xyz_patch2.unsqueeze(0), rgb_patch2.unsqueeze(0))
             contrastive_loss = self.feature_fusion(xyz_patch2.unsqueeze(0), rgb_patch2.unsqueeze(0))
 
         fusion_patch = fusion_patch.reshape(-1, fusion_patch.shape[2]).detach()
-        fake_feats = self.noise_generator(fusion_patch)
+        if is_test:
+          with torch.no_grad():
+            fake_feats = self.noise_generator(fusion_patch)
+        else:
+          fake_feats = self.noise_generator(fusion_patch)
         # print('*' * 60)
         # print(fusion_patch, fake_feats, contrastive_loss)
         # print('Fusion patch: ', fusion_patch)
         # print('fake_feats: ', fake_feats)
         # print('contrastive_loss: ', contrastive_loss)
         # print(f'fusion_patch.shape: ', fusion_patch.shape)
-        return fusion_patch, fake_feats, contrastive_loss
+
+
+        # return fusion_patch, fake_feats, contrastive_loss
+        return fusion_patch, fake_feats, torch.tensor(0)
 
     def evaluate(self, class_name):
         image_rocaucs = dict()
@@ -257,10 +269,10 @@ class LightNet:
                 pass
         return image_rocaucs, pixel_rocaucs, au_pros
 
-    def train(self, training_data, test_data):
+    def train(self, training_data, test_data, class_name):
 
         state_dict = {}
-        ckpt_path = os.path.join(self.ckpt_dir, "ckpt.pth")
+        ckpt_path = os.path.join(self.ckpt_dir, f"{class_name}_ckpt.pth")
 
         # if os.path.exists(ckpt_path):
         #     state_dict = torch.load(ckpt_path, map_location=self.device)
@@ -321,7 +333,7 @@ class LightNet:
                     update_state_dict(state_dict)
                     # state_dict = OrderedDict({k:v.detach().cpu() for k, v in self.state_dict().items()})
 
-            print(f"----- {i_epoch} I-AUROC:{round(auroc, 4)}(MAX:{round(best_record[0], 4)})"
+            print(f"----- {i_epoch + 1} I-AUROC:{round(auroc, 4)}(MAX:{round(best_record[0], 4)})"
                   f"  P-AUROC{round(full_pixel_auroc, 4)}(MAX:{round(best_record[1], 4)}) -----"
                   f"  PRO-AUROC{round(pro, 4)}(MAX:{round(best_record[2], 4)}) -----")
 
@@ -333,7 +345,7 @@ class LightNet:
         """Computes and sets the support features for SPADE."""
 
         self.discriminator.train()
-        self.feature_fusion.eval()
+        # self.feature_fusion.eval()
         self.noise_generator.eval()
 
         i_iter = 0
@@ -397,7 +409,7 @@ class LightNet:
 
     def _train_generator(self, input_data):
         self.discriminator.eval()
-        self.feature_fusion.train()
+        # self.feature_fusion.train()
         self.noise_generator.train()
 
         i_iter = 0
@@ -501,7 +513,7 @@ class LightNet:
     def predict(self, test_dataloader):
         """This function provides anomaly scores/maps for full dataloaders."""
         self.discriminator.eval()
-        self.feature_fusion.eval()
+        # self.feature_fusion.eval()
         self.noise_generator.eval()
 
         img_paths = []
